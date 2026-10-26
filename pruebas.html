@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pruebas de cálculo</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --text:#1c2430; --muted:#5d6878; --border:#dde2e8;
+    --ok:#1f7a45; --ok-soft:#e5f4ea; --fail:#b3261e; --fail-soft:#fbe9e7;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#11161d; --panel:#18202a; --text:#e6ebf1; --muted:#9aa6b5; --border:#2a3542;
+      --ok:#5fd08e; --ok-soft:#173225; --fail:#ff8a80; --fail-soft:#3a1f1d; }
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main{ max-width:1000px; margin:0 auto; padding:24px 16px 48px; }
+  h1{ font-size:22px; margin:0 0 4px; }
+  h2{ font-size:18px; margin:36px 0 4px; padding-top:16px; border-top:1px solid var(--border); }
+  h3{ font-size:15px; margin:22px 0 8px; }
+  p{ margin:4px 0; color:var(--muted); }
+  .resumen{ margin:16px 0; padding:14px 16px; border-radius:8px; border:1px solid var(--border); background:var(--panel); font-weight:600; }
+  .resumen.ok{ border-color:var(--ok); background:var(--ok-soft); color:var(--ok); }
+  .resumen.fail{ border-color:var(--fail); background:var(--fail-soft); color:var(--fail); }
+  .indice{ margin:8px 0 0; padding-left:20px; color:var(--muted); }
+  .tabla{ width:100%; overflow-x:auto; background:var(--panel); border:1px solid var(--border); border-radius:8px; }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ padding:7px 10px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
+  th{ color:var(--muted); font-weight:600; }
+  td.num{ font-family:ui-monospace,Consolas,monospace; white-space:nowrap; }
+  tr.fail td{ background:var(--fail-soft); }
+  .estado{ font-weight:700; }
+  .estado.ok{ color:var(--ok); } .estado.fail{ color:var(--fail); }
+  iframe{ display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pruebas de cálculo — Retos 01 a 04 (RF-45)</h1>
+  <p>Esta página abre <code>ESFV_Reto04.html</code> por dentro, le pasa los datos de varios casos con respuesta conocida y compara lo que calcula la plataforma con esas respuestas. Si todo sale ✓, la plataforma reproduce los casos; si algo sale ✗, un cambio en el código alteró un resultado.</p>
+  <ol class="indice">
+    <li>Reto 01 — caso solo diurno</li>
+    <li>Reto 01 — caso solo nocturno (cruce de medianoche y demanda máxima repetida)</li>
+    <li>Reto 01 — caso mixto con cruce de medianoche (taller de evaluación del Reto 01)</li>
+    <li>Reto 02 — caso estandarizado (generador)</li>
+    <li>Reto 03 — caso estandarizado (regulador, inversores, banco y balance)</li>
+    <li>Sesión 10 — ejemplo 1 (respuestas publicadas por el docente)</li>
+    <li>Reto 04 — Escenario D del grupo (Yopal)</li>
+  </ol>
+  <div id="resumen" class="resumen">Ejecutando pruebas…</div>
+  <div id="resultados"></div>
+  <iframe id="app" src="ESFV_Reto04.html" title="Plataforma bajo prueba"></iframe>
+</main>
+<script>
+const TOL = 0.01; // 1 %, diferencia por redondeo que admite el TdR
+
+/* -------------------------------------------------------------------------
+   Cada caso devuelve secciones con filas [magnitud, esperado, obtenido, tolerancia?].
+   La tolerancia por defecto es relativa (1 %); {abs: x} fija una tolerancia absoluta
+   cuando la respuesta publicada viene redondeada. Las variables de estado de la
+   plataforma (state, genState, bancState) son `let` globales: se leen y modifican con
+   eval en el contexto de la propia plataforma.
+   ------------------------------------------------------------------------- */
+
+// Carga construida con las funciones de la propia plataforma (fu = 1 dentro del horario).
+function carga(w, i, desc, cant, pot, horario){
+  const l = w.newLoad(i);
+  Object.assign(l, { description: desc, quantity: cant, unitPower: pot, schedule: horario.map(([start,end])=>({start,end})) });
+  return l;
+}
+// Indicadores del Reto 01 calculados por la plataforma para un cuadro de cargas.
+function reto01(w, loads, cu, diasMes, diasAnio){
+  const profile = w.hourlyProfile(loads);
+  const pmax = w.maxDemand(profile);
+  const ed = w.dailyEnergy(profile);
+  const em = w.monthlyEnergy(ed, diasMes), ea = w.annualEnergy(ed, diasAnio);
+  const c = w.costs(ed, em, ea, cu);
+  return { pinst: w.installedPower(loads), profile, pmax, ed, em, ea, c,
+           clases: loads.map(l=>w.classifyLoad(l, 6, 18)) };
+}
+function filasPerfil(perfilEsperado, perfil){
+  return perfilEsperado.map((v,h)=>[`P(${String(h).padStart(2,'0')}:00) [W]`, v, perfil[h], { abs: 0.5 }]);
+}
+
+const TALLER_R01 = [ // Taller de evaluación del Reto 01, Parte B (Alta Guajira)
+  ['Sensor meteorológico',1,15,[[0,24]]], ['Datalogger',1,25,[[0,24]]],
+  ['Computador portátil',1,350,[[8,12],[14,17]]], ['Radio VHF',1,120,[[7,9],[16,18]]],
+  ['Iluminación LED exterior',2,60,[[18,6]]], ['Ventilador de gabinete',1,45,[[10,16]]],
+  ['Cargador de baterías portátiles',1,80,[[22,4]]], ['Bomba de agua',1,750,[[6,7],[17,18]]],
+];
+
+const CASOS = [
+  {
+    titulo: 'Caso 1 — Reto 01, solo diurno',
+    descripcion: 'Las cuatro cargas diurnas del caso del taller del Reto 01 (computador, radio, ventilador y bomba), todas dentro de 06:00–18:00. Respuestas calculadas a mano.',
+    ejecutar(w){
+      const loads = TALLER_R01.filter((_,i)=>[2,3,5,7].includes(i)).map((c,i)=>carga(w,i+1,...c));
+      const r = reto01(w, loads, 1200, 30, 365);
+      const perfil = [0,0,0,0,0,0,750,120,470,350,395,395,45,45,395,395,470,870,0,0,0,0,0,0];
+      return [
+        { titulo: 'Indicadores', filas: [
+          ['Potencia instalada [W]', 1265, r.pinst], ['Demanda máxima [W]', 870, r.pmax.value],
+          ['Hora de la demanda máxima', 17, r.pmax.hour], ['Energía diaria [kWh/día]', 4.70, r.ed],
+          ['Clasificación de las 4 cargas', 'diurna,diurna,diurna,diurna', r.clases.join(',')],
+        ]},
+        { titulo: 'Perfil de 24 h', filas: filasPerfil(perfil, r.profile) },
+      ];
+    },
+  },
+  {
+    titulo: 'Caso 2 — Reto 01, solo nocturno con cruce de medianoche',
+    descripcion: 'Las dos cargas nocturnas del caso del taller del Reto 01: iluminación 18:00–06:00 y cargador 22:00–04:00, ambas cruzando la medianoche. La demanda máxima (200 W) se repite en seis horas: se verifica que se reporte la primera y se listen todas (RF-46).',
+    ejecutar(w){
+      const loads = TALLER_R01.filter((_,i)=>[4,6].includes(i)).map((c,i)=>carga(w,i+1,...c));
+      const r = reto01(w, loads, 1200, 30, 365);
+      const perfil = [200,200,200,200,120,120,0,0,0,0,0,0,0,0,0,0,0,0,120,120,120,120,200,200];
+      return [
+        { titulo: 'Indicadores', filas: [
+          ['Potencia instalada [W]', 200, r.pinst], ['Demanda máxima [W]', 200, r.pmax.value],
+          ['Hora reportada (la primera)', 0, r.pmax.hour],
+          ['Horas en que se repite la demanda máxima', '0,1,2,3,22,23', (r.pmax.hoursTied||[]).join(',')],
+          ['Energía diaria [kWh/día]', 1.92, r.ed],
+          ['Clasificación de las 2 cargas', 'nocturna,nocturna', r.clases.join(',')],
+        ]},
+        { titulo: 'Perfil de 24 h', filas: filasPerfil(perfil, r.profile) },
+      ];
+    },
+  },
+  {
+    titulo: 'Caso 3 — Reto 01, mixto con cruce de medianoche (taller del Reto 01)',
+    descripcion: 'Caso de prueba estandarizado del taller de evaluación del Reto 01 (estación de la Alta Guajira, 8 cargas, CU = 1 200 $/kWh, 30 días/mes y 365 días/año). Valores de referencia del taller (Partes C y E).',
+    ejecutar(w){
+      const loads = TALLER_R01.map((c,i)=>carga(w,i+1,...c));
+      const r = reto01(w, loads, 1200, 30, 365);
+      const perfil = [240,240,240,240,160,160,790,160,510,390,435,435,85,85,435,435,510,910,160,160,160,160,240,240];
+      return [
+        { titulo: 'Indicadores', filas: [
+          ['Potencia instalada [W]', 1505, r.pinst], ['Demanda máxima [W]', 910, r.pmax.value],
+          ['Hora de la demanda máxima', 17, r.pmax.hour], ['Energía diaria [kWh/día]', 7.58, r.ed],
+          ['Energía mensual [kWh/mes]', 227.40, r.em], ['Energía anual [kWh/año]', 2766.70, r.ea],
+          ['Costo diario [$]', 9096, r.c.daily], ['Costo mensual [$]', 272880, r.c.monthly], ['Costo anual [$]', 3320040, r.c.annual],
+          ['Clasificación de las 8 cargas', 'mixta,mixta,diurna,diurna,nocturna,diurna,nocturna,diurna', r.clases.join(',')],
+        ]},
+        { titulo: 'Perfil de 24 h', filas: filasPerfil(perfil, r.profile) },
+      ];
+    },
+  },
+  {
+    titulo: 'Caso 4 — Reto 02, caso estandarizado (generador)',
+    descripcion: 'TdR del Reto 02, §7: Ed 7,58 kWh/día, HSP 5,8 / 5,2, PR 0,70, 600 V, T<sub>mín</sub> 20 °C, T<sub>amb</sub> 32 °C, 20 m², módulo de referencia de 550 Wp. Valores de referencia publicados en el §7.3.',
+    ejecutar(w){
+      w.activarCasoPruebaReto3(); // fija el caso del Reto 02 y el módulo de referencia
+      const ev = (code)=> w.eval(code);
+      ev(`genState.criterioHSP = 'anual';`); const pA = w.computePpicoW();
+      ev(`genState.criterioHSP = 'min';`);   const pC = w.computePpicoW();
+      ev(`genState.criterioHSP = 'anual';`);
+      const panel = w.CATALOGO_PANELES.find(p=>p.id==='ref-caso-prueba');
+      const cfg = w.computePanelConfig(panel, pA, 0);
+      return [
+        { titulo: 'Resultado de referencia (§7.3)', filas: [
+          ['Potencia pico, promedio anual [kWp]', 1.87, pA/1000], ['Potencia pico, mes crítico [kWp]', 2.08, pC/1000],
+          ['Módulos necesarios', 4, cfg.totalModulos], ['Potencia instalada [kWp]', 2.20, cfg.potenciaInstaladaW/1000],
+          ['Voc del módulo a 20 °C [V]', 50.17, cfg.vocFrio], ['Máximo de módulos en serie con 600 V', 11, cfg.nsMax],
+          ['Configuración', '4 × 1', `${cfg.ns} × ${cfg.np}`], ['Voc del generador a 20 °C [V]', 200.7, cfg.vocTotalStringV],
+          ['Temperatura de celda [°C]', 63.2, cfg.tCelda], ['Vmp del generador en operación [V]', 148.9, cfg.vmpOperacion*cfg.ns],
+          ['Isc del generador [A]', 14.0, cfg.corrienteArregloA], ['Corriente de diseño 1,25 × 1,25 × Isc [A]', 21.9, cfg.corrienteDisenoA],
+          ['Área del generador [m²]', 10.32, cfg.areaOcupadaM2], ['Energía diaria estimada [kWh/día]', 8.93, cfg.energiaGeneradaKWh],
+        ]},
+      ];
+    },
+  },
+  {
+    titulo: 'Caso 5 — Reto 03, caso estandarizado',
+    descripcion: 'TdR del Reto 03, §6: 4 × 550 Wp (4s × 1p), η<sub>inv</sub> 0,90, N = 2 días, f<sub>T</sub> = 1, tensión nominal 48 V. El TdR no publica las respuestas: los valores esperados se calcularon a mano con las fórmulas del §4.',
+    ejecutar(w){
+      const ev = (code)=> w.eval(code);
+      w.activarCasoPruebaReto3();
+      const gen = w.getGeneradorSeleccionado();
+      const reg = (id)=> w.evaluarRegulador(gen, w.CATALOGO_REGULADORES.find(e=>e.id===id));
+      const inv = (id)=> w.evaluarInversor(gen, w.CATALOGO_INVERSORES.find(e=>e.id===id));
+      const a = reg('ctrl-a'), b = reg('ctrl-b'), c = reg('ctrl-c');
+      const banco = (id)=>{
+        ev(`bancState.bateriaId = ${JSON.stringify(id)}; bancState.dodManual = false;`);
+        const bat = w.CATALOGO_BATERIAS.find(x=>x.id===id);
+        const cfg = w.computeBancoBaterias(gen, bat, { vBanco: 48, dodDisenoPct: bat.dodDisenoPct });
+        return { cfg, t: w.computeTasaC(gen, cfg), rec: w.computeTiempoRecuperacion(gen, cfg), bal: w.computeBalanceCierre(gen, cfg) };
+      };
+      const filasBanco = (x, e)=> [
+        ['Cn [Wh]', e.cnWh, x.cfg.cnWh], ['Cn [Ah]', e.cnAh, x.cfg.cnAh], ['Ns × Np', e.nsnp, `${x.cfg.ns} × ${x.cfg.np}`],
+        ['Número de baterías', e.n, x.cfg.numBaterias], ['Ah instalados', e.ah, x.cfg.ahInstalados], ['kWh instalados', e.kwh, x.cfg.kwhInstalados],
+        ['DoD al final de la autonomía', e.dodFin, x.cfg.dodFinal], ['DoD diario', e.dodDia, x.cfg.dodDiario],
+        ['Tasa C de carga (corriente a 48 V)', e.cC, x.t.tasaCCarga], ['Tasa C de descarga', e.cD, x.t.tasaCDescarga],
+        ['Energía a generar [Wh/día]', e.eGen, x.bal.eGenWhDia],
+        ['P requerida, HSP anual [W]', e.pA, x.bal.pReqAnualW], ['P requerida, mes crítico [W]', e.pC, x.bal.pReqCriticoW],
+        ['Margen anual [%]', e.mA, x.bal.margenAnualPct], ['Margen mes crítico [%]', e.mC, x.bal.margenCriticoPct],
+        ['Módulos adicionales (anual / crítico)', e.mods, `${x.bal.modulosAdicionalesAnual} / ${x.bal.modulosAdicionalesCritico}`],
+        ['¿El banco se recupera?', 'no', x.rec.recupera ? 'sí' : 'no'],
+      ];
+      const lfp = banco('lfp-generico');
+      const agm = banco('agm-generico');
+      const comp = w.compararTecnologiasEnergiaPorAnio(gen);
+      w.aceptarAjusteBalance();
+      const genAj = w.getGeneradorReto3();
+      const bAj = w.evaluarRegulador(genAj, w.CATALOGO_REGULADORES.find(x=>x.id==='ctrl-b'));
+      const npExtra = genAj.npExtra ?? 0;
+      w.deshacerAjusteBalance();
+      return [
+        { titulo: 'Arreglo y corrientes (RF-28, RF-29)', filas: [
+          ['Voc en frío del arreglo [V]', 200.67, a.vArr.vocFrioV], ['Vmp en caliente [V]', 148.86, a.vArr.vmpCalienteV],
+          ['Vmp en frío [V]', 168.24, a.vArr.vmpFrioV], ['Corriente de salida al banco [A]', 45.83, a.vCor.iSalidaBancoA],
+          ['Corriente de diseño 1,25 × 1,25 × Isc [A]', 21.875, a.vCor.iDisenoConductoresA],
+        ]},
+        { titulo: 'Reguladores del TdR (RF-28, RF-31)', filas: [
+          ['CTRL-A — Ns máx.', 2, a.vArr.nsMaxEquipo], ['CTRL-A — veredicto', 'no-cumple', a.veredicto],
+          ['CTRL-B — Ns máx.', 4, b.vArr.nsMaxEquipo], ['CTRL-B — veredicto', 'cumple', b.veredicto],
+          ['CTRL-C — Ns máx.', 4, c.vArr.nsMaxEquipo], ['CTRL-C — veredicto', 'no-cumple', c.veredicto],
+        ]},
+        { titulo: 'Banco AGM 12 V / 200 Ah', filas: filasBanco(agm, { cnWh:33688.89, cnAh:701.85, nsnp:'4 × 4', n:16, ah:800, kwh:38.4,
+          dodFin:0.4387, dodDia:0.2193, cC:0.0573, cD:0.0263, eGen:10527.78, pA:2593.05, pC:2892.24, mA:-15.16, mC:-23.93, mods:'1 / 2' }) },
+        { titulo: 'Banco LFP 51,2 V / 100 Ah', filas: filasBanco(lfp, { cnWh:21055.56, cnAh:411.24, nsnp:'1 × 5', n:5, ah:500, kwh:25.6,
+          dodFin:0.6580, dodDia:0.3290, cC:0.0917, cD:0.0421, eGen:9154.59, pA:2254.83, pC:2515.00, mA:-2.43, mC:-12.53, mods:'1 / 1' }) },
+        { titulo: 'Inversores del TdR, rama sin almacenamiento (RF-30, RF-31)', filas: ['inv-a','inv-b','inv-c'].flatMap((id,i)=>{
+          const e = inv(id), nombre = id.toUpperCase();
+          return [[`${nombre} — relación DC/AC`, [1.4667, 1.1, 0.7333][i], e.dcac.ratio],
+                  [`${nombre} — veredicto`, ['no-cumple','cumple','alerta'][i], e.veredicto]];
+        })},
+        { titulo: 'Comparación de tecnologías y ajuste del balance (RF-34, RF-35)', filas: [
+          ['AGM — kWh / año de servicio', 9.6, comp.find(x=>x.bateria.id==='agm-generico').energiaPorAnioKWh],
+          ['LFP — kWh / año de servicio', 2.56, comp.find(x=>x.bateria.id==='lfp-generico').energiaPorAnioKWh],
+          ['Ajuste AGM — cadenas añadidas', 1, npExtra],
+          ['Ajuste AGM — corriente al banco [A]', 91.67, bAj.vCor.iSalidaBancoA],
+          ['Ajuste AGM — CTRL-B', 'no-cumple', bAj.veredicto],
+        ]},
+      ];
+    },
+  },
+  {
+    titulo: 'Caso 6 — Sesión 10, ejemplo 1 (vivienda rural de Santa Marta)',
+    descripcion: 'Diapositivas de la Sesión 10, pp. 25–29, con las respuestas publicadas por el docente: 3 350 Wh/día, η<sub>inv</sub> 0,92, banco de 24 V, N = 2 días, generador de 1 350 Wp. Las respuestas vienen redondeadas, por eso algunas filas usan una tolerancia igual a ese redondeo.',
+    ejecutar(w){
+      const ev = (code)=> w.eval(code);
+      ev(`genState.overrideCasoPrueba = { ed: 3.35, profile: Array(24).fill(3350/24), pmaxW: 822, pmaxHour: 19 };`);
+      const gen = { panel: { pMax: 450 }, cfg: { potenciaInstaladaW: 1350 } };
+      const agmBat = w.CATALOGO_BATERIAS.find(x=>x.id==='agm-generico');
+      const lfpBat = { id:'lfp-25-6-sesion10', tecnologia:'LFP', vUnidadV:25.6, cUnidadAh:100, dodDisenoPct:80,
+                       etaIdaVueltaPct:92, limiteCargaC:0.5, limiteDescargaC:null, vidaAnios:10 };
+      const opts = (dod)=> ({ vBanco:24, etaInversor:0.92, autonomiaDias:2, factorTemp:1, dodDisenoPct:dod });
+      const agm = w.computeBancoBaterias(gen, agmBat, opts(50));
+      const lfp = w.computeBancoBaterias(gen, lfpBat, opts(80));
+      const tAgm = w.computeTasaC(gen, agm), tLfp = w.computeTasaC(gen, lfp);
+      ev(`genState.overrideCasoPrueba = null;`);
+      const r = { abs: 0.005 };
+      return [
+        { titulo: 'Banco de baterías', filas: [
+          ['E<sub>CC</sub> [Wh/día]', 3641, agm.eCCWhDia],
+          ['AGM — Cn [Ah]', 607, agm.cnAh], ['AGM — arreglo', '2 × 4', `${agm.ns} × ${agm.np}`],
+          ['AGM — Ah / kWh instalados', '800 / 19.2', `${agm.ahInstalados} / ${agm.kwhInstalados}`],
+          ['LFP — Cn [Ah]', 356, lfp.cnAh], ['LFP — arreglo', '1 × 4', `${lfp.ns} × ${lfp.np}`],
+          ['LFP — Ah / kWh instalados', '400 / 10.24', `${lfp.ahInstalados} / ${lfp.kwhInstalados}`],
+          ['AGM — DoD diario', 0.19, agm.dodDiario, r], ['LFP — DoD diario', 0.36, lfp.dodDiario, r],
+          ['Corriente de carga del MPPT [A]', 56.3, tAgm.iCargaA],
+          ['AGM — tasa C de carga', 0.07, tAgm.tasaCCarga, r], ['LFP — tasa C de carga', 0.14, tLfp.tasaCCarga, r],
+        ]},
+      ];
+    },
+  },
+  {
+    titulo: 'Caso 7 — Reto 04, Escenario D del grupo (finca lechera, Yopal)',
+    descripcion: 'Se carga con el botón "Cargar Escenario D" (RF-39) y se verifican el requerimiento y los datos del escenario (TdR Reto 04, §3). Respuestas del requerimiento calculadas a mano a partir de las 7 cargas del TdR.',
+    ejecutar(w){
+      const ev = (code)=> w.eval(code);
+      ev(`state = buildEscenarioDProject(); genState = newGenState(); bancState = newBancState(); aplicarParametrosEscenarioD(); aplicarRestriccionRamaPorAppType();`);
+      const st = ev('state'), gs = ev('genState'), bs = ev('bancState');
+      const r = reto01(w, st.loads, st.unitCost, st.opDaysPerMonth, st.opDaysPerYear);
+      const req = w.computeRequisitoInversorAislado();
+      const invId = w.autoSelectInversorAisladoId(req);
+      const multiplus = w.evaluarInversorAislado(w.CATALOGO_INVERSORES_AISLADOS.find(e=>e.id==='victron-multiplus-ii-48-3000'), req);
+      const plano0 = w.trasladarAlPlanoInclinado([5,5,5,5,5,5,5,5,5,5,5,5], 5.34, 0);
+      const perfil = [0,0,0,0,150,2050,1900,950,300,300,250,250,1000,1000,1000,1000,900,800,1100,300,300,150,0,0];
+      return [
+        { titulo: 'Datos del escenario', filas: [
+          ['Número de cargas', 7, st.loads.length], ['Tipo de aplicación', 'off-grid', st.appType],
+          ['Costo unitario CU [$/kWh]', 1200, st.unitCost], ['Días de operación al año', 365, st.opDaysPerYear],
+          ['Ventana solar', '6-18', `${st.dayStart}-${st.dayEnd}`],
+          ['Coordenadas', '5.34, -72.39', `${gs.lat}, ${gs.lon}`], ['Área disponible [m²]', 35, gs.areaDisponible],
+          ['Rama de conversión', 'con-almacenamiento', bs.rama], ['Tensión nominal del banco [V]', 48, bs.tensionBancoV],
+          ['Autonomía [días]', 2, bs.autonomiaDias], ['Eficiencia del inversor', 0.90, bs.etaInversor],
+          ['Temperatura mínima de diseño [°C] (ERA5 2015–2024)', 16, gs.tAmbMin], ['Temperatura de operación [°C]', 31, gs.tAmbOperacion],
+          ['Factor de temperatura del banco f<sub>T</sub>', 0.9778, bs.factorTemp],
+        ]},
+        { titulo: 'Inversor de las cargas en CA y arranque de motores (§4)', filas: [
+          ['Potencia continua requerida [W]', 2050, req.pContW],
+          ['Pico de arranque con k = 3 [W] (2 050 + 2 × 1 100)', 4250, req.picoW],
+          ['Hora del pico de arranque', 5, req.horaPico],
+          ['Motor que define el pico', 'Bomba de pozo y abrevaderos (1 HP)', req.motorPico ? req.motorPico.l.description : '—'],
+          ['Cargas con arranque detectadas', 3, req.motores.length],
+          ['Victron MultiPlus-II 48/3000 (2 400 W / 5 500 W)', 'cumple', multiplus.veredicto],
+          ['Inversor elegido automáticamente', 'victron-multiplus-ii-48-3000', invId],
+        ]},
+        { titulo: 'Traslado al plano inclinado de la segunda fuente (comprobación)', filas: [
+          ['Con inclinación 0° el valor no cambia [kWh/m²·día]', 5, plano0[0], { abs: 1e-9 }],
+        ]},
+        { titulo: 'Requerimiento (verificación del escenario, §4)', filas: [
+          ['Potencia instalada [W]', 3350, r.pinst], ['Demanda máxima [W]', 2050, r.pmax.value],
+          ['Hora de la demanda máxima', 5, r.pmax.hour], ['Energía diaria [kWh/día]', 13.70, r.ed],
+          ['Energía anual [kWh/año]', 5000.5, r.ea], ['Costo anual [$]', 6000600, r.c.annual],
+        ]},
+        { titulo: 'Perfil de 24 h', filas: filasPerfil(perfil, r.profile) },
+      ];
+    },
+  },
+];
+
+function comparar(esperado, obtenido, tol){
+  if(typeof esperado === 'number'){
+    if(typeof obtenido !== 'number' || !isFinite(obtenido)) return false;
+    if(tol && tol.abs!=null) return Math.abs(obtenido - esperado) <= tol.abs + 1e-12;
+    if(esperado === 0) return Math.abs(obtenido) < 1e-9;
+    return Math.abs(obtenido - esperado) / Math.abs(esperado) <= TOL;
+  }
+  return String(obtenido) === String(esperado);
+}
+function mostrar(v){
+  if(typeof v !== 'number') return v ?? '—';
+  return Math.abs(v) >= 100 ? v.toLocaleString('es-CO',{maximumFractionDigits:2}) : v.toLocaleString('es-CO',{maximumFractionDigits:4});
+}
+function escapar(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function textoTol(tol){ return tol && tol.abs!=null ? `± ${mostrar(tol.abs)}` : '1 %'; }
+
+function ejecutarTodo(w){
+  let total = 0, fallas = 0, html = '';
+  for(const caso of CASOS){
+    let secciones, error = null;
+    try{ secciones = caso.ejecutar(w); } catch(err){ error = err; }
+    html += `<h2>${escapar(caso.titulo)}</h2><p>${caso.descripcion}</p>`;
+    if(error){
+      total++; fallas++;
+      html += `<div class="resumen fail">✗ El caso no se pudo ejecutar: ${escapar(error.message||error)}</div>`;
+      continue;
+    }
+    for(const s of secciones){
+      const filas = s.filas.map(([nombre, esperado, obtenido, tol])=>{
+        const ok = comparar(esperado, obtenido, tol);
+        total++; if(!ok) fallas++;
+        return `<tr class="${ok?'':'fail'}"><td>${nombre}</td><td class="num">${escapar(mostrar(esperado))}</td><td class="num">${escapar(mostrar(obtenido))}</td><td class="num">${typeof esperado==='number'?textoTol(tol):'exacto'}</td><td class="estado ${ok?'ok':'fail'}">${ok?'✓':'✗'}</td></tr>`;
+      }).join('');
+      html += `<h3>${escapar(s.titulo)}</h3><div class="tabla"><table><thead><tr><th>Magnitud</th><th>Esperado</th><th>Plataforma</th><th>Tolerancia</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>`;
+    }
+  }
+  document.getElementById('resultados').innerHTML = html;
+  const res = document.getElementById('resumen');
+  res.className = 'resumen ' + (fallas ? 'fail' : 'ok');
+  res.textContent = fallas ? `✗ ${fallas} de ${total} pruebas fallaron (${CASOS.length} casos).` : `✓ Las ${total} pruebas de los ${CASOS.length} casos pasaron.`;
+}
+
+document.getElementById('app').addEventListener('load', ()=>{
+  const res = document.getElementById('resumen');
+  try{
+    const w = document.getElementById('app').contentWindow;
+    if(typeof w.activarCasoPruebaReto3 !== 'function') throw new Error('No se encontraron las funciones de la plataforma en ESFV_Reto04.html.');
+    ejecutarTodo(w);
+  } catch(err){
+    res.className = 'resumen fail';
+    res.textContent = (err && err.name === 'SecurityError')
+      ? 'El navegador bloqueó el acceso a la plataforma. Abre esta página desde un servidor (Vercel o http://localhost), no con doble clic.'
+      : 'No se pudieron ejecutar las pruebas: ' + (err && err.message ? err.message : err);
+  }
+});
+</script>
+</body>
+</html>
