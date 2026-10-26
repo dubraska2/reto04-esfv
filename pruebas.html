@@ -38,7 +38,7 @@
 <body>
 <main>
   <h1>Pruebas de cálculo — Retos 01 a 04 (RF-45)</h1>
-  <p>Esta página abre <code>ESFV_Reto04.html</code> por dentro, le pasa los datos de varios casos con respuesta conocida y compara lo que calcula la plataforma con esas respuestas. Si todo sale ✓, la plataforma reproduce los casos; si algo sale ✗, un cambio en el código alteró un resultado.</p>
+  <p>Esta página abre <code>index.html</code> por dentro, le pasa los datos de varios casos con respuesta conocida y compara lo que calcula la plataforma con esas respuestas. Si todo sale ✓, la plataforma reproduce los casos; si algo sale ✗, un cambio en el código alteró un resultado.</p>
   <ol class="indice">
     <li>Reto 01 — caso solo diurno</li>
     <li>Reto 01 — caso solo nocturno (cruce de medianoche y demanda máxima repetida)</li>
@@ -50,7 +50,7 @@
   </ol>
   <div id="resumen" class="resumen">Ejecutando pruebas…</div>
   <div id="resultados"></div>
-  <iframe id="app" src="ESFV_Reto04.html" title="Plataforma bajo prueba"></iframe>
+  <iframe id="app" src="index.html" title="Plataforma bajo prueba"></iframe>
 </main>
 <script>
 const TOL = 0.01; // 1 %, diferencia por redondeo que admite el TdR
@@ -358,7 +358,7 @@ document.getElementById('app').addEventListener('load', ()=>{
   const res = document.getElementById('resumen');
   try{
     const w = document.getElementById('app').contentWindow;
-    if(typeof w.activarCasoPruebaReto3 !== 'function') throw new Error('No se encontraron las funciones de la plataforma en ESFV_Reto04.html.');
+    if(typeof w.activarCasoPruebaReto3 !== 'function') throw new Error('No se encontraron las funciones de la plataforma en index.html.');
     ejecutarTodo(w);
   } catch(err){
     res.className = 'resumen fail';

@@ -14,7 +14,7 @@ Deben estar **todos en la misma carpeta** (el HTML carga los `.js` como `<script
 
 | Archivo | Contenido |
 |---|---|
-| `ESFV_Reto04.html` | Aplicación completa (interfaz, estilos y lógica). Es el único archivo que se abre en el navegador. |
+| `index.html` | Aplicación completa (interfaz, estilos y lógica). Es el único archivo que se abre en el navegador. |
 | `config.js` | Parámetros de conexión a PVWatts. Solo lleva la clave pública `DEMO_KEY` (ver "Sin credenciales expuestas"). |
 | `api/pvwatts.js` | Función serverless de Vercel: consulta PVWatts con la clave guardada en la variable de entorno `NREL_API_KEY`, sin que la clave llegue al navegador. |
 | `pruebas.html` | Pruebas automáticas de cálculo (RF-45): 7 casos y 227 comprobaciones, se abre desde el navegador. |
@@ -35,7 +35,7 @@ Deben estar **todos en la misma carpeta** (el HTML carga los `.js` como `<script
 ## Cómo ejecutarlo
 
 ### Opción A — Abrir directamente (la más simple)
-Doble clic sobre `ESFV_Reto04.html`. Funciona completa; la consulta en línea a PVWatts usa la clave pública `DEMO_KEY` y, si falla, la base de datos local.
+Doble clic sobre `index.html`. Funciona completa; la consulta en línea a PVWatts usa la clave pública `DEMO_KEY` y, si falla, la base de datos local.
 
 ### Opción B — Servidor local (recomendada si se quiere usar la API en línea)
 Los navegadores bloquean por CORS las peticiones `fetch` hechas desde un archivo abierto con `file://`. Para que la consulta en línea del recurso solar tenga la mejor oportunidad de funcionar, sirve la carpeta con un servidor local y ábrela por `http://localhost`:
@@ -44,7 +44,7 @@ Los navegadores bloquean por CORS las peticiones `fetch` hechas desde un archivo
 # Python 3 (ya viene instalado en la mayoría de sistemas)
 cd carpeta-del-proyecto
 python -m http.server 8080
-# luego abre http://localhost:8080/ESFV_Reto04.html
+# luego abre http://localhost:8080/index.html
 ```
 
 También funciona con la extensión "Live Server" de VS Code o cualquier servidor estático equivalente.
@@ -153,7 +153,7 @@ En la rama con almacenamiento, un inversor aislado toma la energía del banco y 
 
 Esta carpeta es un paquete estático lista para publicarse en cualquier hosting de archivos estáticos, sin build ni backend — por ejemplo:
 
-- **GitHub Pages**: subir todos los archivos de "Archivos del proyecto" a un repositorio y activar Pages sobre esa rama/carpeta; renombrar `ESFV_Reto04.html` a `index.html` (o configurar esa página como raíz) para que la URL quede limpia. En GitHub Pages no corre `api/pvwatts.js`: la app usa `DEMO_KEY`.
+- **GitHub Pages**: subir todos los archivos de "Archivos del proyecto" a un repositorio y activar Pages sobre esa rama/carpeta. En GitHub Pages no corre `api/pvwatts.js`: la app usa `DEMO_KEY`.
 - **Netlify / Vercel (modo estático)**: arrastrar la carpeta o conectar el repositorio; no se requiere ningún comando de build.
 - Cualquier otro hosting de archivos estáticos (no se requiere Node, Python ni ningún servidor de aplicaciones en producción).
 
@@ -165,7 +165,7 @@ El único valor parecido a una credencial en el código es `config.js` → `wind
 
 ### Arquitectura
 
-Aplicación de una sola página (sin base de datos; el único componente de servidor es la función opcional `api/pvwatts.js`), separada en capas dentro del `<script>` de `ESFV_Reto04.html`:
+Aplicación de una sola página (sin base de datos; el único componente de servidor es la función opcional `api/pvwatts.js`), separada en capas dentro del `<script>` de `index.html`:
 
 1. **Datos / Estado** — `state` (proyecto y cargas, Reto 01), `genState` (generador, Reto 02), `bancState` (regulador/inversor y banco, Reto 03); cada uno con su función `new*State()` de valores por defecto.
 2. **Cálculos (puro)** — funciones sin efectos secundarios que solo toman datos y devuelven resultados (`hourlyProfile`, `maxDemand`, `computePpicoW`, `computeBancoBaterias`, `computeBalanceCierre`, etc.), de forma que todo resultado es reconstruible desde las entradas visibles y estas reglas (RF-36/RF-48).

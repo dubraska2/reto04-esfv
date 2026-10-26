@@ -1489,25 +1489,41 @@ let genState = newGenState();
 let pvwattsCache = {}; // caché por sesión, clave "lat,lon,tilt,azimuth"
 
 /* --------------------------- Datos heredados del Reto 01 (RF-13) ------------------ */
-// Perfil sintético del caso de prueba estandarizado del Reto 02 (Anexo 7.1 del ToR):
-// Ed=7.580 kWh/día, dentro de ventana 06-18h=5.180 kWh, fuera=2.400 kWh, Pmax=910W a las 17:00.
-function casoPruebaProfile(){
-  const profile = Array(24).fill(0);
-  const dia = (5180-910)/11; // 11 horas (06-16) + hora pico 17 = 5180 Wh
-  for(let h=6; h<=16; h++) profile[h] = dia;
-  profile[17] = 910;
-  const noche = 2400/12; // 12 horas restantes (18-23, 00-05)
-  for(let h=18; h<24; h++) profile[h] = noche;
-  for(let h=0; h<6; h++) profile[h] = noche;
-  return profile;
+// Caso de prueba estandarizado: proyecto "Estación de Monitoreo Ambiental Remota — Alta Guajira"
+// (taller de evaluación del Reto 01, el mismo contenido del archivo "caso alta guajira.json").
+// Con él, Ed = 7,580 kWh/día, 5,180 kWh dentro de la ventana 06–18 h, 2,400 kWh fuera de ella y
+// Pmax = 910 W a las 17:00, como declara el TdR del Reto 02 (§7.1).
+function buildCasoAltaGuajiraProject(){
+  const p = newProject();
+  Object.assign(p, {
+    name: 'Estación de Monitoreo Ambiental Remota — Alta Guajira, Colombia', id: 'ESFV-2026-001',
+    members: 'Dubraska Duran; Juan Goldringer', date: '2026-10-04', appType: 'off-grid',
+    dayStart: 6, dayEnd: 18, opDaysPerMonth: 30, opDaysPerYear: 365, unitCost: 1200,
+  });
+  const cargas = [
+    ['Sensor meteorológico', 1, 15, [[0,23],[23,0]]],
+    ['Datalogger', 1, 25, [[0,23],[23,0]]],
+    ['Computador portátil', 1, 350, [[8,12],[14,17]]],
+    ['Radio VHF', 1, 120, [[7,9],[16,18]]],
+    ['Iluminación LED exterior', 2, 60, [[18,6]]],
+    ['Ventilador de gabinete', 1, 45, [[10,16]]],
+    ['Cargador de baterías portátil', 1, 80, [[22,4]]],
+    ['Bomba de agua', 1, 750, [[6,7],[17,18]]],
+  ];
+  p.loads = cargas.map(([description, quantity, unitPower, horario], i)=>
+    Object.assign(newLoad(i+1), { description, quantity, unitPower, schedule: horario.map(([start,end])=>({start,end})) }));
+  return p;
 }
+// Copia del proyecto del usuario mientras el caso de prueba está activo, para "Volver a mis datos".
+let proyectoAntesDelCaso = null;
 function activarCasoPrueba(){
-  const profile = casoPruebaProfile();
-  genState.overrideCasoPrueba = {
-    ed: 7.580, profile, pmaxW: 910, pmaxHour: 17,
-  };
+  if(!genState.overrideCasoPrueba) proyectoAntesDelCaso = { state: JSON.parse(JSON.stringify(state)), dirty, savedOnce };
+  // Todas las pestañas del Reto 01 (Proyecto, Cargas, Análisis, Resultados) muestran el caso.
+  state = buildCasoAltaGuajiraProject();
+  fuSelectedLoads = new Set(state.loads.map(l=>l.id)); selectedLoadId = null; selectedHour = null;
+  const profile = hourlyProfile(state.loads), pmax = maxDemand(profile);
+  genState.overrideCasoPrueba = { ed: dailyEnergy(profile), profile, pmaxW: pmax.value, pmaxHour: pmax.hour };
   genState.lat = 12.18; genState.lon = -71.28; genState.tilt = 12; genState.azimuth = 180;
-  genState.casoGuardadoId = 'uribia';
   // PR y tensión máxima son datos declarados por el TdR: se marcan como fijados para que un
   // cambio posterior del tipo de aplicación no los reemplace por los valores típicos.
   genState.PR = 0.70; genState.prManual = true;
@@ -1515,10 +1531,25 @@ function activarCasoPrueba(){
   genState.tAmbMin = 20; genState.tAmbOperacion = 32;
   genState.areaDisponible = 20;
   genState.ventanaInicio = 6; genState.ventanaFin = 18;
-  genState.recurso = null; genState.panelSeleccionadoId = null; genState.seleccionAutomatica = true; genState.panelNsExtra = 0;
+  genState.criterioHSP = 'anual';
+  // Recurso solar: caso guardado "Uribia" (HSP 5,8 / 5,2 del TdR), sin depender de la API.
+  genState.casoGuardadoId = 'uribia';
+  const uribia = ((window.BASE_DATOS_SOLAR && window.BASE_DATOS_SOLAR.casos) || []).find(c=>c.id==='uribia');
+  genState.recurso = uribia ? Object.assign(recursoDesdeCaso(uribia, null), { seleccionado: true, ubicacion: uribia.nombre }) : null;
+  genState.segundaFuente = null;
+  // Módulo de referencia del TdR (550 Wp), con la cadena mínima 4s × 1p.
+  genState.panelSeleccionadoId = 'ref-caso-prueba'; genState.seleccionAutomatica = false; genState.panelNsExtra = 0;
 }
 function desactivarCasoPrueba(){
   genState.overrideCasoPrueba = null;
+  if(proyectoAntesDelCaso){
+    const prev = proyectoAntesDelCaso.state;
+    state = Object.assign(newProject(), prev);
+    state.loads = (prev.loads||[]).map((l,i)=> Object.assign(newLoad(i+1), l));
+    dirty = proyectoAntesDelCaso.dirty; savedOnce = proyectoAntesDelCaso.savedOnce;
+    fuSelectedLoads = new Set(state.loads.map(l=>l.id)); selectedLoadId = null; selectedHour = null;
+    proyectoAntesDelCaso = null;
+  }
 }
 function getInheritedData(){
   if(genState.overrideCasoPrueba){
@@ -2126,9 +2157,9 @@ function renderCasoPruebaBanner(inh){
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
         <div>
           <strong style="color:var(--accent-2);">🧪 Modo de verificación activo — Caso de prueba estandarizado (Reto 02, Anexo 7.1)</strong>
-          <div class="small-note" style="margin-top:4px;">Ed, P(h), Pmax y su hora se sustituyeron temporalmente por los valores de referencia del documento (7,580 kWh/día · 910 W a las 17:00) para contrastar los cálculos de este módulo contra los resultados publicados. Esto NO modifica el proyecto del Reto 01.</div>
+          <div class="small-note" style="margin-top:4px;">Se cargó el proyecto del caso (estación de monitoreo de la Alta Guajira, 8 cargas: 7,580 kWh/día · 910 W a las 17:00) en todas las pestañas, el recurso solar de Uribia y el módulo de referencia de 550 Wp. "Volver a mis datos" restaura tu proyecto tal como estaba.</div>
         </div>
-        <button class="btn btn-ghost btn-sm" id="btnDesactivarCasoPrueba">✕ Volver a mis datos del Reto 01</button>
+        <button class="btn btn-ghost btn-sm" id="btnDesactivarCasoPrueba">✕ Volver a mis datos</button>
       </div>
     </div>`;
   }
@@ -2568,15 +2599,8 @@ let bancState = newBancState();
 // Caso de prueba estandarizado del Reto 03 (continúa el caso de Nazareth/Alta Guajira del
 // Reto 02 con el generador ya validado: 4 módulos de 550 Wp en 4 serie x 1 paralelo, 2,20 kWp).
 function activarCasoPruebaReto3(){
-  activarCasoPrueba(); // Reto 02: Ed/P(h)/Pmax, lat/lon, PR, Vmax, Tmin/Top, área, ventana
-  // Resuelve el recurso solar de forma síncrona (sin depender de la consulta a la API) para
-  // que el caso de prueba quede completamente verificable sin conexión, igual que el resto
-  // del modo de verificación: el caso local "uribia" fue calibrado para reproducir exactamente
-  // el HSP anual (5,8) y del mes crítico (5,2) declarados en el documento de referencia.
-  genState.recurso = localFallbackRecurso(genState.lat, genState.lon, 'Caso de prueba estandarizado (resuelto sin conexión).');
-  genState.panelSeleccionadoId = 'ref-caso-prueba';
-  genState.seleccionAutomatica = false;
-  genState.panelNsExtra = 0; // el caso de prueba usa exactamente la cadena 4s1p declarada en el TdR
+  // Reto 01 y Reto 02: proyecto Alta Guajira, recurso de Uribia y módulo de referencia 4s × 1p.
+  activarCasoPrueba();
   bancState.rama = 'con-almacenamiento';
   bancState.ramaManual = true;
   bancState.etaInversor = 0.90;
@@ -3264,7 +3288,7 @@ function renderCasoPruebaBanner3(inh){
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
         <div>
           <strong style="color:var(--accent-2);">🧪 Modo de verificación activo — Caso de prueba estandarizado (Reto 03, sección 6)</strong>
-          <div class="small-note" style="margin-top:4px;">Generador fijo en 4 módulos de 550 Wp (4 serie × 1 paralelo, 2,20 kWp). Compara los resultados de este módulo con los valores del documento de referencia.</div>
+          <div class="small-note" style="margin-top:4px;">Proyecto de la estación de la Alta Guajira cargado en todas las pestañas, recurso solar de Uribia y generador de 4 módulos de referencia de 550 Wp (4 serie × 1 paralelo, 2,20 kWp). Compara los resultados de este módulo con los valores del documento de referencia.</div>
         </div>
         <button class="btn btn-ghost btn-sm" id="btnDesactivarCasoPrueba3">✕ Volver a mis datos</button>
       </div>
@@ -4471,7 +4495,7 @@ function attachRootEvents(){
   });
   app.querySelector('#btnActivarCasoPrueba')?.addEventListener('click', ()=>{ activarCasoPrueba(); render(); toast('Caso de prueba estandarizado cargado (verificación).','success'); });
   app.querySelector('#btnActivarCasoPruebaEmpty')?.addEventListener('click', ()=>{ activarCasoPrueba(); render(); toast('Caso de prueba estandarizado cargado (verificación).','success'); });
-  app.querySelector('#btnDesactivarCasoPrueba')?.addEventListener('click', ()=>{ desactivarCasoPrueba(); render(); toast('Se restauraron los datos del proyecto del Reto 01.','success'); });
+  app.querySelector('#btnDesactivarCasoPrueba')?.addEventListener('click', ()=>{ desactivarCasoPrueba(); render(); toast('Se restauró tu proyecto.','success'); });
   app.querySelector('#btnToggleTablaPerfil')?.addEventListener('click', ()=>{ genState.mostrarTablaPerfil = !genState.mostrarTablaPerfil; render(); });
   app.querySelector('#btnToggleCuadroCargas')?.addEventListener('click', ()=>{ genState.mostrarCuadroCargas = !genState.mostrarCuadroCargas; render(); });
 

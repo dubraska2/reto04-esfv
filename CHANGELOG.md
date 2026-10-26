@@ -10,6 +10,12 @@ Primera versión etiquetada y lista para evaluación (Reto 04). Integra en una s
 aplicación web los Retos 01 a 04 sobre Energía Solar Fotovoltaica (2026-II).
 Incorpora las correcciones de la auditoría del Reto 03 (2026-10-26).
 
+### Nuevo — caso de prueba estandarizado
+- El botón "Cargar caso de prueba estandarizado" (Reto 02 y Reto 03) carga en todas las
+  pestañas anteriores el proyecto de `caso alta guajira.json` (8 cargas, 7,58 kWh/día,
+  910 W a las 17:00), el recurso solar de Uribia y el módulo de referencia (Genérico TdR
+  Reto 02, §7.2). "✕ Volver a mis datos" restaura el proyecto que se tenía antes.
+
 ### Corregido — auditoría del Reto 03
 - **Recurso solar:** NREL cambió de dominio (`developer.nlr.gov`); se quitó el proxy
   público `corsproxy.io`; la espera sube de 9 a 30 s (antes la app abandonaba la
